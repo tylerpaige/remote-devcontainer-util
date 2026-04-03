@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""
+Exec into a running devcontainer for the given project.
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from devcontainer_utils import load_devcontainer_context  # noqa: E402
+
+
+def find_shell(container_name, is_compose=False, compose_project=None, service_name=None):
+    """Return the best available shell in the container."""
+    for shell in ['bash', 'sh']:
+        if is_compose:
+            result = subprocess.run(
+                ['docker', 'compose', '-p', compose_project, 'exec', service_name,
+                 'which', shell],
+                capture_output=True
+            )
+        else:
+            result = subprocess.run(
+                ['docker', 'exec', container_name, 'which', shell],
+                capture_output=True
+            )
+        if result.returncode == 0:
+            return shell
+    return 'sh'
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: devcontainer-exec <path-to-project>")
+        print("Example: devcontainer-exec ~/lbya/lmna/apps/lmna-economy")
+        sys.exit(1)
+
+    project_path = Path(sys.argv[1]).expanduser().resolve()
+    devcontainer_config, _, container_name = load_devcontainer_context(project_path)
+
+    if 'dockerComposeFile' in devcontainer_config:
+        service_name = devcontainer_config.get('service', 'app')
+        shell = find_shell(container_name, is_compose=True,
+                           compose_project=container_name, service_name=service_name)
+        print(f"🔌 Execing into '{container_name}' service '{service_name}' ({shell})...")
+        os.execvp('docker', ['docker', 'compose', '-p', container_name,
+                              'exec', service_name, shell])
+    else:
+        shell = find_shell(container_name)
+        print(f"🔌 Execing into container '{container_name}' ({shell})...")
+        os.execvp('docker', ['docker', 'exec', '-it', container_name, shell])
+
+
+if __name__ == '__main__':
+    main()

@@ -1,0 +1,57 @@
+#!/usr/bin/env python3
+"""
+Tear down a devcontainer, removing containers and networks.
+The image is preserved so the next start is fast. Pass --rmi to also remove it.
+
+Usage: devcontainer-down <path-to-project> [--rmi]
+"""
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from devcontainer_utils import load_devcontainer_context  # noqa: E402
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: devcontainer-down <path-to-project> [--rmi]")
+        print("Example: devcontainer-down ~/lbya/lmna/apps/lmna-economy")
+        print("  --rmi  Also remove the built image")
+        sys.exit(1)
+
+    project_path = Path(sys.argv[1]).expanduser().resolve()
+    remove_image = '--rmi' in sys.argv[2:]
+
+    devcontainer_config, devcontainer_dir, container_name = load_devcontainer_context(project_path)
+
+    if 'dockerComposeFile' in devcontainer_config:
+        compose_file = devcontainer_dir / devcontainer_config['dockerComposeFile']
+        cmd = ['docker', 'compose', '-p', container_name, '-f', str(compose_file), 'down']
+        if remove_image:
+            cmd += ['--rmi', 'local']
+        print(f"Tearing down compose project '{container_name}'...")
+        result = subprocess.run(cmd)
+    else:
+        print(f"Removing container '{container_name}'...")
+        result = subprocess.run(['docker', 'rm', '-f', container_name])
+        if result.returncode == 0 and remove_image:
+            image_name = f"{container_name}:devcontainer"
+            # Only try to remove if it's a locally built image (has 'build' config, no 'image' key)
+            if 'build' in devcontainer_config or 'image' not in devcontainer_config:
+                print(f"Removing image '{image_name}'...")
+                subprocess.run(['docker', 'rmi', image_name])
+
+    if result.returncode == 0:
+        print("Done.")
+        if not remove_image:
+            print("Image preserved. Pass --rmi to remove it too.")
+    else:
+        print("Failed (container may not exist).")
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()

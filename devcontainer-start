@@ -1,0 +1,250 @@
+#!/usr/bin/env python3
+"""
+Start a devcontainer by parsing devcontainer.json and applying its configuration
+to docker-compose or docker run commands.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent))
+from devcontainer_utils import load_devcontainer_json, get_container_name  # noqa: E402
+
+
+def parse_mount_string(mount_str, workspace_folder):
+    """Parse a devcontainer mount string and convert to docker volume format."""
+    # Example: source=${localWorkspaceFolder}/../lmna-frontend,target=/workspaces/lmna-frontend,type=bind,consistency=cached
+    parts = {}
+    for part in mount_str.split(','):
+        if '=' in part:
+            key, value = part.split('=', 1)
+            parts[key.strip()] = value.strip()
+
+    source = parts.get('source', '')
+    source = source.replace('${localWorkspaceFolder}', workspace_folder)
+    source = source.replace('${localEnv:HOME}', os.path.expanduser('~'))
+
+    if source and not source.startswith('/'):
+        source = os.path.abspath(os.path.join(workspace_folder, source))
+
+    target = parts.get('target', '')
+    mount_type = parts.get('type', 'bind')
+    readonly = ',readonly' if parts.get('readonly') else ''
+
+    if mount_type == 'bind':
+        return f"{source}:{target}{readonly}"
+    else:
+        return f"{source}:{target}"
+
+
+def run_standalone_container(devcontainer_config, project_path, devcontainer_dir, container_name):
+    """Start a standalone docker container, reusing existing container/image when possible."""
+    workspace_mount = f"/workspaces/{project_path.name}"
+
+    # If container already exists, just (re)start it
+    inspect = subprocess.run(
+        ['docker', 'inspect', '--type=container', container_name],
+        capture_output=True, text=True
+    )
+    if inspect.returncode == 0:
+        state = json.loads(inspect.stdout)[0]['State']['Status']
+        if state == 'running':
+            print(f"Container '{container_name}' is already running.")
+            return
+        print(f"Restarting stopped container '{container_name}'...")
+        result = subprocess.run(['docker', 'start', container_name])
+        if result.returncode != 0:
+            print("❌ Failed to restart container")
+            sys.exit(1)
+        print(f"✅ Container '{container_name}' started.")
+        return
+
+    # Container doesn't exist — determine image, building only if necessary
+    if 'image' in devcontainer_config:
+        image_name = devcontainer_config['image']
+        print(f"🐳 Using image: {image_name}")
+    else:
+        build_config = devcontainer_config.get('build', {})
+        dockerfile_rel = build_config.get('dockerfile', 'Dockerfile')
+        dockerfile = (devcontainer_dir / dockerfile_rel).resolve()
+
+        if not dockerfile.exists():
+            print(f"Error: Dockerfile not found at {dockerfile}")
+            sys.exit(1)
+
+        context_rel = build_config.get('context', '.')
+        context_path = (devcontainer_dir / context_rel).resolve()
+        image_name = f"{container_name}:devcontainer"
+
+        img_exists = subprocess.run(
+            ['docker', 'image', 'inspect', image_name],
+            capture_output=True
+        ).returncode == 0
+
+        if img_exists:
+            print(f"Using existing image '{image_name}'.")
+        else:
+            print(f"🔨 Building image '{image_name}'...")
+            build_args_list = []
+            for key, value in build_config.get('args', {}).items():
+                build_args_list += ['--build-arg', f'{key}={value}']
+            result = subprocess.run(
+                ['docker', 'build', '-t', image_name, '-f', str(dockerfile),
+                 *build_args_list, str(context_path)],
+            )
+            if result.returncode != 0:
+                print("❌ Failed to build image")
+                sys.exit(1)
+
+    docker_args = [
+        'docker', 'run', '-d',
+        '--name', container_name,
+        '-v', f'{project_path}:{workspace_mount}',
+        '-w', workspace_mount,
+    ]
+
+    for mount in devcontainer_config.get('mounts', []):
+        volume = parse_mount_string(mount, str(project_path))
+        docker_args += ['-v', volume]
+
+    for key, value in devcontainer_config.get('remoteEnv', {}).items():
+        docker_args += ['-e', f'{key}={value}']
+
+    docker_args += [image_name, 'sleep', 'infinity']
+
+    print(f"🚀 Starting container '{container_name}'...")
+    result = subprocess.run(docker_args)
+    if result.returncode != 0:
+        print("❌ Failed to start container")
+        sys.exit(1)
+
+    print(f"✅ Container '{container_name}' started.")
+
+    if 'postCreateCommand' in devcontainer_config:
+        print(f"\n⚙️  Running postCreateCommand...")
+        cmd = devcontainer_config['postCreateCommand']
+        result = subprocess.run(['docker', 'exec', container_name, 'bash', '-c', cmd])
+        if result.returncode == 0:
+            print("✅ postCreateCommand completed successfully")
+        else:
+            print("⚠️  postCreateCommand failed (you may need to run it manually)")
+
+    print(f"\n💡 To access the container:")
+    print(f"   devcontainer-exec {project_path}")
+    print(f"\n💡 To stop the container:")
+    print(f"   devcontainer-stop {project_path}")
+
+
+def create_docker_compose_override(devcontainer_config, workspace_folder, service_name):
+    """Create a docker-compose.override.yml content from devcontainer.json settings."""
+    service = {}
+
+    if 'mounts' in devcontainer_config:
+        volumes = [parse_mount_string(m, workspace_folder) for m in devcontainer_config['mounts']]
+        if volumes:
+            service['volumes'] = volumes
+
+    if 'remoteEnv' in devcontainer_config:
+        service['environment'] = [f"{k}={v}" for k, v in devcontainer_config['remoteEnv'].items()]
+
+    return service
+
+
+def run_compose_container(devcontainer_config, project_path, devcontainer_dir, container_name):
+    """Start a devcontainer backed by docker-compose."""
+    compose_file = devcontainer_config['dockerComposeFile']
+    compose_file_path = devcontainer_dir / compose_file
+    service_name = devcontainer_config.get('service', 'app')
+
+    if not compose_file_path.exists():
+        print(f"Error: docker-compose file not found at {compose_file_path}")
+        sys.exit(1)
+
+    service_overrides = create_docker_compose_override(
+        devcontainer_config, str(project_path), service_name
+    )
+
+    override_path = devcontainer_dir / 'docker-compose.override.yml'
+    if service_overrides:
+        with open(override_path, 'w') as f:
+            f.write("version: '3.8'\n")
+            f.write("services:\n")
+            f.write(f"  {service_name}:\n")
+            if 'volumes' in service_overrides:
+                f.write("    volumes:\n")
+                for volume in service_overrides['volumes']:
+                    f.write(f"      - {volume}\n")
+            if 'environment' in service_overrides:
+                f.write("    environment:\n")
+                for env in service_overrides['environment']:
+                    f.write(f"      - {env}\n")
+        print(f"✅ Created override file: {override_path}")
+
+    print(f"🚀 Starting docker-compose (project: {container_name})...")
+    os.chdir(devcontainer_dir)
+
+    result = subprocess.run(
+        ['docker', 'compose', '-p', container_name, 'up', '-d']
+    )
+
+    if result.returncode != 0:
+        print("❌ Failed to start container")
+        sys.exit(1)
+
+    print(f"\n✅ Container started successfully!")
+
+    if 'postCreateCommand' in devcontainer_config:
+        print(f"\n⚙️  Running postCreateCommand...")
+        cmd = devcontainer_config['postCreateCommand']
+        result = subprocess.run(
+            ['docker', 'compose', '-p', container_name, 'exec', '-T', service_name, 'bash', '-c', cmd],
+            cwd=devcontainer_dir
+        )
+        if result.returncode == 0:
+            print("✅ postCreateCommand completed successfully")
+        else:
+            print("⚠️  postCreateCommand failed (you may need to run it manually)")
+
+    print(f"\n💡 To access the container:")
+    print(f"   devcontainer-exec {project_path}")
+    print(f"\n💡 To stop the container:")
+    print(f"   docker compose -p {container_name} -f {compose_file_path} down")
+
+
+def main():
+    if len(sys.argv) < 2:
+        print("Usage: devcontainer-start <path-to-project>")
+        print("Example: devcontainer-start ~/lbya/lmna/apps/lmna-economy")
+        sys.exit(1)
+
+    project_path = Path(sys.argv[1]).expanduser().resolve()
+    devcontainer_dir = project_path / '.devcontainer'
+    devcontainer_json_path = devcontainer_dir / 'devcontainer.json'
+
+    # Allow a lone Dockerfile with no devcontainer.json
+    devcontainer_config = {}
+    if devcontainer_json_path.exists():
+        devcontainer_config = load_devcontainer_json(devcontainer_json_path)
+    elif not (devcontainer_dir / 'Dockerfile').exists():
+        print(f"Error: No devcontainer.json or Dockerfile found in {devcontainer_dir}")
+        sys.exit(1)
+
+    container_name = get_container_name(devcontainer_config, project_path)
+    display_name = devcontainer_config.get('name', container_name)
+    print(f"📦 Starting devcontainer: {display_name} ('{container_name}')")
+
+    if 'dockerComposeFile' in devcontainer_config:
+        run_compose_container(devcontainer_config, project_path, devcontainer_dir, container_name)
+    elif 'image' in devcontainer_config or 'build' in devcontainer_config or (devcontainer_dir / 'Dockerfile').exists():
+        run_standalone_container(devcontainer_config, project_path, devcontainer_dir, container_name)
+    else:
+        print("Error: devcontainer.json must specify 'dockerComposeFile', 'image', or 'build'")
+        print("Alternatively, place a Dockerfile in .devcontainer/")
+        sys.exit(1)
+
+
+if __name__ == '__main__':
+    main()
