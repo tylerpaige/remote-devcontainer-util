@@ -133,9 +133,9 @@ def run_standalone_container(devcontainer_config, project_path, devcontainer_dir
             print("⚠️  postCreateCommand failed (you may need to run it manually)")
 
     print(f"\n💡 To access the container:")
-    print(f"   devcontainer-exec {project_path}")
+    print(f"   devcontainer exec {project_path}")
     print(f"\n💡 To stop the container:")
-    print(f"   devcontainer-stop {project_path}")
+    print(f"   devcontainer stop {project_path}")
 
 
 def create_docker_compose_override(devcontainer_config, workspace_folder, service_name):
@@ -209,15 +209,15 @@ def run_compose_container(devcontainer_config, project_path, devcontainer_dir, c
             print("⚠️  postCreateCommand failed (you may need to run it manually)")
 
     print(f"\n💡 To access the container:")
-    print(f"   devcontainer-exec {project_path}")
+    print(f"   devcontainer exec {project_path}")
     print(f"\n💡 To stop the container:")
     print(f"   docker compose -p {container_name} -f {compose_file_path} down")
 
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: devcontainer-start <path-to-project>")
-        print("Example: devcontainer-start ~/lbya/lmna/apps/lmna-economy")
+        print("Usage: devcontainer start <path-to-project>")
+        print("Example: devcontainer start ~/lbya/lmna/apps/lmna-economy")
         sys.exit(1)
 
     project_path = Path(sys.argv[1]).expanduser().resolve()

@@ -33,8 +33,8 @@ def find_shell(container_name, is_compose=False, compose_project=None, service_n
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: devcontainer-exec <path-to-project>")
-        print("Example: devcontainer-exec ~/lbya/lmna/apps/lmna-economy")
+        print("Usage: devcontainer exec <path-to-project>")
+        print("Example: devcontainer exec ~/lbya/lmna/apps/lmna-economy")
         sys.exit(1)
 
     project_path = Path(sys.argv[1]).expanduser().resolve()

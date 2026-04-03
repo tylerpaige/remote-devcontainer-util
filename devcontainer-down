@@ -3,7 +3,7 @@
 Tear down a devcontainer, removing containers and networks.
 The image is preserved so the next start is fast. Pass --rmi to also remove it.
 
-Usage: devcontainer-down <path-to-project> [--rmi]
+Usage: devcontainer down <path-to-project> [--rmi]
 """
 
 import os
@@ -17,8 +17,8 @@ from devcontainer_utils import load_devcontainer_context  # noqa: E402
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: devcontainer-down <path-to-project> [--rmi]")
-        print("Example: devcontainer-down ~/lbya/lmna/apps/lmna-economy")
+        print("Usage: devcontainer down <path-to-project> [--rmi]")
+        print("Example: devcontainer down ~/lbya/lmna/apps/lmna-economy")
         print("  --rmi  Also remove the built image")
         sys.exit(1)
 

@@ -2,6 +2,20 @@
 
 Personal scripts for working with devcontainers.
 
+## Setup
+
+Add the scripts to your `PATH` by appending the following to your `~/.bashrc`:
+
+```sh
+export PATH="$HOME/devcontainer:$PATH"
+```
+
+Then reload your shell:
+
+```sh
+source ~/.bashrc
+```
+
 ## Commands
 
 | Command | Description |

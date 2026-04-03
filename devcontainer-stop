@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Stop a running devcontainer without removing it.
-Use devcontainer-down to remove the container entirely.
+Use devcontainer down to remove the container entirely.
 """
 
 import os
@@ -15,8 +15,8 @@ from devcontainer_utils import load_devcontainer_context  # noqa: E402
 
 def main():
     if len(sys.argv) < 2:
-        print("Usage: devcontainer-stop <path-to-project>")
-        print("Example: devcontainer-stop ~/lbya/lmna/apps/lmna-economy")
+        print("Usage: devcontainer stop <path-to-project>")
+        print("Example: devcontainer stop ~/lbya/lmna/apps/lmna-economy")
         sys.exit(1)
 
     project_path = Path(sys.argv[1]).expanduser().resolve()
@@ -33,7 +33,7 @@ def main():
         result = subprocess.run(['docker', 'stop', container_name])
 
     if result.returncode == 0:
-        print(f"Container stopped. Run devcontainer-start to restart.")
+        print(f"Container stopped. Run devcontainer start to restart.")
     else:
         print("Failed to stop container (may already be stopped).")
         sys.exit(1)

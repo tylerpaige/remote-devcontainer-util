@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# devcontainer <subcommand> [path] [extra args...]
+# Wraps devcontainer-{start,stop,exec,down}, defaulting path to current directory.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    echo "Usage: devcontainer <subcommand> [path] [options]"
+    echo ""
+    echo "Subcommands:"
+    echo "  start   Start the devcontainer"
+    echo "  stop    Stop the devcontainer (without removing it)"
+    echo "  exec    Exec into the running devcontainer"
+    echo "  down    Tear down the devcontainer [--rmi]"
+    echo ""
+    echo "If [path] is omitted, the current directory is used."
+}
+
+if [[ $# -eq 0 ]]; then
+    usage
+    exit 1
+fi
+
+subcommand="$1"
+shift
+
+case "$subcommand" in
+    start|stop|exec|down)
+        # If next arg looks like a path (starts with / ~ or .), use it; otherwise default to .
+        if [[ $# -gt 0 && ( "$1" == /* || "$1" == ~* || "$1" == .* || -d "$1" ) ]]; then
+            project_path="$1"
+            shift
+        else
+            project_path="."
+        fi
+        exec "$SCRIPT_DIR/devcontainer-$subcommand" "$project_path" "$@"
+        ;;
+    -h|--help|help)
+        usage
+        ;;
+    *)
+        echo "Unknown subcommand: $subcommand"
+        usage
+        exit 1
+        ;;
+esac
