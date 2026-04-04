@@ -8,6 +8,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -167,28 +168,31 @@ def run_compose_container(devcontainer_config, project_path, devcontainer_dir, c
         devcontainer_config, str(project_path), service_name
     )
 
-    override_path = devcontainer_dir / 'docker-compose.override.yml'
+    compose_cmd = ['docker', 'compose', '-p', container_name, '-f', str(compose_file_path)]
+
+    override_file = None
     if service_overrides:
-        with open(override_path, 'w') as f:
-            f.write("version: '3.8'\n")
-            f.write("services:\n")
-            f.write(f"  {service_name}:\n")
-            if 'volumes' in service_overrides:
-                f.write("    volumes:\n")
-                for volume in service_overrides['volumes']:
-                    f.write(f"      - {volume}\n")
-            if 'environment' in service_overrides:
-                f.write("    environment:\n")
-                for env in service_overrides['environment']:
-                    f.write(f"      - {env}\n")
-        print(f"✅ Created override file: {override_path}")
+        override_file = tempfile.NamedTemporaryFile(mode='w', suffix='.yml', delete=False)
+        override_file.write("version: '3.8'\n")
+        override_file.write("services:\n")
+        override_file.write(f"  {service_name}:\n")
+        if 'volumes' in service_overrides:
+            override_file.write("    volumes:\n")
+            for volume in service_overrides['volumes']:
+                override_file.write(f"      - {volume}\n")
+        if 'environment' in service_overrides:
+            override_file.write("    environment:\n")
+            for env in service_overrides['environment']:
+                override_file.write(f"      - {env}\n")
+        override_file.close()
+        compose_cmd += ['-f', override_file.name]
 
     print(f"🚀 Starting docker-compose (project: {container_name})...")
-    os.chdir(devcontainer_dir)
 
-    result = subprocess.run(
-        ['docker', 'compose', '-p', container_name, 'up', '-d']
-    )
+    result = subprocess.run(compose_cmd + ['up', '-d'])
+
+    if override_file:
+        os.unlink(override_file.name)
 
     if result.returncode != 0:
         print("❌ Failed to start container")
@@ -200,8 +204,8 @@ def run_compose_container(devcontainer_config, project_path, devcontainer_dir, c
         print(f"\n⚙️  Running postCreateCommand...")
         cmd = devcontainer_config['postCreateCommand']
         result = subprocess.run(
-            ['docker', 'compose', '-p', container_name, 'exec', '-T', service_name, 'bash', '-c', cmd],
-            cwd=devcontainer_dir
+            ['docker', 'compose', '-p', container_name, '-f', str(compose_file_path),
+             'exec', '-T', service_name, 'bash', '-c', cmd]
         )
         if result.returncode == 0:
             print("✅ postCreateCommand completed successfully")
