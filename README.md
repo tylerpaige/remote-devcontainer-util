@@ -17,7 +17,7 @@ Personally I like for it to live right in my home directory.
 git clone git@github.com:tylerpaige/remote-devcontainer-util.git
 ```
 
-**2. (Optional) Make the command available as `devcontainer`
+**2. (Optional) Make the command available as `devcontainer`**
 
 Add the scripts to your `PATH` by appending the following to your `~/.bashrc` or `~/.zshrc` or what have you. If you cloned the repo into your home directory, that would look like this:
 
