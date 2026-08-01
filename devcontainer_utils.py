@@ -1,8 +1,21 @@
 """Shared utilities for devcontainer scripts."""
 
 import json
+import os
 import re
 from pathlib import Path
+
+
+def host_user_args():
+    """-u flag forcing containers to run as the host uid:gid.
+
+    Bind mounts enforce real POSIX permissions on native Linux Docker (unlike
+    Docker Desktop's VM-mediated mounts on macOS), so if an image's default
+    user doesn't match the host uid, writes to the mounted workspace fail
+    with EACCES. Overriding to the host uid:gid sidesteps that regardless of
+    what user the Dockerfile happens to define.
+    """
+    return ['-u', f'{os.getuid()}:{os.getgid()}']
 
 
 def sanitize_name(name):

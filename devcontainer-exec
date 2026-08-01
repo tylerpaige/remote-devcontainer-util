@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from devcontainer_utils import load_devcontainer_context  # noqa: E402
+from devcontainer_utils import load_devcontainer_context, host_user_args  # noqa: E402
 
 
 def find_shell(container_name, is_compose=False, compose_project=None, service_name=None):
@@ -46,11 +46,11 @@ def main():
                            compose_project=container_name, service_name=service_name)
         print(f"🔌 Execing into '{container_name}' service '{service_name}' ({shell})...")
         os.execvp('docker', ['docker', 'compose', '-p', container_name,
-                              'exec', service_name, shell])
+                              'exec', *host_user_args(), service_name, shell])
     else:
         shell = find_shell(container_name)
         print(f"🔌 Execing into container '{container_name}' ({shell})...")
-        os.execvp('docker', ['docker', 'exec', '-it', container_name, shell])
+        os.execvp('docker', ['docker', 'exec', *host_user_args(), '-it', container_name, shell])
 
 
 if __name__ == '__main__':

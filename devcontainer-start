@@ -12,7 +12,7 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
-from devcontainer_utils import load_devcontainer_json, get_container_name  # noqa: E402
+from devcontainer_utils import load_devcontainer_json, get_container_name, host_user_args  # noqa: E402
 
 
 def parse_mount_string(mount_str, workspace_folder):
@@ -105,6 +105,7 @@ def run_standalone_container(devcontainer_config, project_path, devcontainer_dir
         '--name', container_name,
         '-v', f'{project_path}:{workspace_mount}',
         '-w', workspace_mount,
+        *host_user_args(),
     ]
 
     for mount in devcontainer_config.get('mounts', []):
@@ -113,6 +114,16 @@ def run_standalone_container(devcontainer_config, project_path, devcontainer_dir
 
     for key, value in devcontainer_config.get('remoteEnv', {}).items():
         docker_args += ['-e', f'{key}={value}']
+
+    run_args = list(devcontainer_config.get('runArgs', []))
+    for i, arg in enumerate(run_args):
+        if arg in ('--env-file', '--volume', '-v') and i + 1 < len(run_args):
+            value = run_args[i + 1]
+            path = value.split(':', 1)[0] if arg in ('--volume', '-v') else value
+            if path and not os.path.isabs(path):
+                resolved = str((project_path / path).resolve())
+                run_args[i + 1] = value.replace(path, resolved, 1)
+    docker_args += run_args
 
     docker_args += [image_name, 'sleep', 'infinity']
 
@@ -127,7 +138,7 @@ def run_standalone_container(devcontainer_config, project_path, devcontainer_dir
     if 'postCreateCommand' in devcontainer_config:
         print(f"\n⚙️  Running postCreateCommand...")
         cmd = devcontainer_config['postCreateCommand']
-        result = subprocess.run(['docker', 'exec', container_name, 'bash', '-c', cmd])
+        result = subprocess.run(['docker', 'exec', *host_user_args(), container_name, 'bash', '-c', cmd])
         if result.returncode == 0:
             print("✅ postCreateCommand completed successfully")
         else:
@@ -141,7 +152,7 @@ def run_standalone_container(devcontainer_config, project_path, devcontainer_dir
 
 def create_docker_compose_override(devcontainer_config, workspace_folder, service_name):
     """Create a docker-compose.override.yml content from devcontainer.json settings."""
-    service = {}
+    service = {'user': f'{os.getuid()}:{os.getgid()}'}
 
     if 'mounts' in devcontainer_config:
         volumes = [parse_mount_string(m, workspace_folder) for m in devcontainer_config['mounts']]
@@ -176,6 +187,8 @@ def run_compose_container(devcontainer_config, project_path, devcontainer_dir, c
         override_file.write("version: '3.8'\n")
         override_file.write("services:\n")
         override_file.write(f"  {service_name}:\n")
+        if 'user' in service_overrides:
+            override_file.write(f"    user: \"{service_overrides['user']}\"\n")
         if 'volumes' in service_overrides:
             override_file.write("    volumes:\n")
             for volume in service_overrides['volumes']:
