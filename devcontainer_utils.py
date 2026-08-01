@@ -12,12 +12,25 @@ def sanitize_name(name):
     return name
 
 
+_JSON_TOKEN_RE = re.compile(r'"(?:\\.|[^"\\])*"|//[^\n]*|/\*.*?\*/', re.DOTALL)
+
+
+def _strip_json_comments(content):
+    """Strip // and /* */ comments, leaving string literals (e.g. URLs) untouched."""
+    def replace(match):
+        token = match.group(0)
+        if token.startswith('"'):
+            return token
+        return '\n' * token.count('\n')
+
+    return _JSON_TOKEN_RE.sub(replace, content)
+
+
 def load_devcontainer_json(path):
     """Read and parse devcontainer.json, stripping comments."""
     with open(path, 'r') as f:
         content = f.read()
-    content = re.sub(r'//.*$', '', content, flags=re.MULTILINE)
-    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
+    content = _strip_json_comments(content)
     return json.loads(content)
 
 
